@@ -2,7 +2,8 @@
   "frameworks": {
     "net46":{
       "dependencies": {
-        "Paramore.Brighter.CommandProcessor": "6.1.8"
+        "Paramore.Brighter.CommandProcessor": "6.1.8",
+        "Brighter.AzureExtensions.Functions": "0.1.0"
       }
     }
   }
