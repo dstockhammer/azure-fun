@@ -8,6 +8,6 @@ using AzureFun.Core.Commands;
 
 public static void Run(BrokeredMessage msg, TraceWriter log)
 {
-    var pipelineInvoker = new PipelineInvoker(s => log.Info(s), typeof(ProcessMessageCommand).Assembly);
+    var pipelineInvoker = new PipelineInvoker($"ProcessMessageCommand {msg.MessageId}", log, typeof(ProcessMessageCommand).Assembly);
     pipelineInvoker.Execute<ProcessMessageCommand>(msg);
 }

@@ -1,22 +1,24 @@
-﻿using System;
-using AzureFun.Core.Commands;
+﻿using AzureFun.Core.Commands;
 using paramore.brighter.commandprocessor;
+using paramore.brighter.commandprocessor.logging.Attributes;
+using Serilog;
 
 namespace AzureFun.Core.Handlers
 {
     public sealed class ProcessMessageCommandHandler : RequestHandler<ProcessMessageCommand>
     {
-        private readonly Action<string> _log;
+        private readonly ILogger _logger;
 
-        public ProcessMessageCommandHandler(Action<string> log)
+        public ProcessMessageCommandHandler(ILogger logger)
         {
-            _log = log;
+            _logger = logger;
         }
 
+        [RequestLogging(1, HandlerTiming.Before)]
         public override ProcessMessageCommand Handle(ProcessMessageCommand command)
         {
-            _log($"Handling ProcessMessageCommand {command.Id}");
-            _log(command.Message);
+            _logger.Information($"Handling ProcessMessageCommand {command.Id}");
+            _logger.Information(command.Message);
 
             return base.Handle(command);
         }

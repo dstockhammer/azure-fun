@@ -1,23 +1,32 @@
 ﻿using System;
 using System.Reflection;
+using Microsoft.Azure.WebJobs.Host;
 using Microsoft.ServiceBus.Messaging;
 using paramore.brighter.commandprocessor;
+using Serilog;
 using TinyIoC;
 
 namespace Brighter.AzureExtensions.Functions
 {
     public sealed class PipelineInvoker
     {
-        // todo proper logger adapter
-        private readonly Action<string> _log;
         private static HandlerConfig _handlerConfig;
         private static CommandProcessor _commandProcessor;
         private static readonly object _initialisationLock = new object();
+        private static string _initialisedByRequestId;
 
-        public PipelineInvoker(Action<string> log, Assembly coreAssembly, IAmAMessageProducer producer = null)
+        public PipelineInvoker(string requestId, TraceWriter traceWriter, Assembly coreAssembly, IAmAMessageProducer producer = null)
         {
-            _log = log;
-            TinyIoCContainer.Current.Register(_log); // todo
+            // todo: logger is static, but traceWriter is not. probably bad.
+            Log.Logger = new LoggerConfiguration()
+                .WriteTo.Sink(new TraceWriterSink(traceWriter))
+                .CreateLogger();
+
+            // todo: again, logg provider is static, but traceWriter is not. probably bad.
+            // yep, turns out this doesn't work at all
+            //LogProvider.SetCurrentLogProvider(new TraceWriterLogProvider(log));
+
+            TinyIoCContainer.Current.Register(Log.Logger);
 
             if (_handlerConfig == null)
             {
@@ -25,29 +34,47 @@ namespace Brighter.AzureExtensions.Functions
                 {
                     if (_handlerConfig == null)
                     {
+                        Log.Logger.Information("Initialising ({requestId})...", requestId);
+                        _initialisedByRequestId = requestId;
+
                         _handlerConfig = new HandlerConfig();
                         _handlerConfig.RegisterDefaultHandlers();
                         _handlerConfig.RegisterMappersFromAssembly(coreAssembly);
                         _handlerConfig.RegisterSubscribersFromAssembly(coreAssembly);
 
-                        _commandProcessor = CommandProcessorBuilder.With()
-                            .Handlers(_handlerConfig.HandlerConfiguration)
-                            .DefaultPolicy()
-                            .TaskQueues(new MessagingConfiguration(new InMemoryMessageStore(), producer,
-                                _handlerConfig.MessageMapperRegistry))
-                            .RequestContextFactory(new InMemoryRequestContextFactory())
-                            .Build();
+                        if (producer != null)
+                        {
+                            _commandProcessor = CommandProcessorBuilder.With()
+                                .Handlers(_handlerConfig.HandlerConfiguration)
+                                .DefaultPolicy()
+                                .TaskQueues(new MessagingConfiguration(new InMemoryMessageStore(), producer, _handlerConfig.MessageMapperRegistry))
+                                .RequestContextFactory(new InMemoryRequestContextFactory())
+                                .Build();
+                        }
+                        else
+                        {
+                            _commandProcessor = CommandProcessorBuilder.With()
+                                .Handlers(_handlerConfig.HandlerConfiguration)
+                                .DefaultPolicy()
+                                .NoTaskQueues()
+                                .RequestContextFactory(new InMemoryRequestContextFactory())
+                                .Build();
+                        }
 
                         TinyIoCContainer.Current.Register<IAmACommandProcessor>(_commandProcessor);
                     }
                 }
+            }
+            else
+            {
+                Log.Logger.Information("Already initialised by {requestId}", _initialisedByRequestId);
             }
         }
 
         public void Execute<TRequest>(BrokeredMessage msg)
             where TRequest : class, IRequest
         {
-            _log($"Invoking Brighter pipeline for {typeof(TRequest).Name} {msg.MessageId}");
+            Log.Logger.Information("Invoking Brighter pipeline for {request} {id}", typeof(TRequest).Name, msg.MessageId);
 
             var messageId = Guid.Parse(msg.MessageId);
             var correlationId = Guid.Parse(msg.CorrelationId);

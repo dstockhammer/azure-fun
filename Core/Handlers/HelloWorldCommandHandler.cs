@@ -1,24 +1,26 @@
-﻿using System;
-using AzureFun.Core.Commands;
+﻿using AzureFun.Core.Commands;
 using paramore.brighter.commandprocessor;
+using paramore.brighter.commandprocessor.logging.Attributes;
+using Serilog;
 
 namespace AzureFun.Core.Handlers
 {
     public sealed class HelloWorldCommandHandler : RequestHandler<HelloWorldCommand>
     {
-        private readonly Action<string> _log;
+        private readonly ILogger _logger;
         private readonly IAmACommandProcessor _commandProcessor;
 
-        public HelloWorldCommandHandler(Action<string> log, IAmACommandProcessor commandProcessor)
+        public HelloWorldCommandHandler(ILogger logger, IAmACommandProcessor commandProcessor)
         {
-            _log = log;
+            _logger = logger;
             _commandProcessor = commandProcessor;
         }
 
+        [RequestLogging(1, HandlerTiming.Before)]
         public override HelloWorldCommand Handle(HelloWorldCommand command)
         {
-            _log($"Handling HelloWorldCommand {command.Id}");
-            _log(command.Message);
+            _logger.Information($"Handling HelloWorldCommand {command.Id}");
+            _logger.Information(command.Message);
 
             _commandProcessor.Post(new ProcessMessageCommand(command.Message));
 
