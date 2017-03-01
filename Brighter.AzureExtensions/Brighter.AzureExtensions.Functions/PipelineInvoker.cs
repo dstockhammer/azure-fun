@@ -13,6 +13,20 @@ namespace Brighter.AzureExtensions.Functions
         public PipelineInvoker(Action<string> log)
         {
             _log = log;
+            TinyIoCContainer.Current.Register(_log); // todo
+        }
+
+        public PipelineInvoker(Action<string> log, MessagingConfiguration messagingConfiguration)
+            : this(log)
+        {
+            var commandProcessor = CommandProcessorBuilder.With()
+                .Handlers(new HandlerConfiguration(new SubscriberRegistry(), new TinyIoCFactory())) // todo: .NoHandlers()
+                .DefaultPolicy()
+                .TaskQueues(messagingConfiguration)
+                .RequestContextFactory(new InMemoryRequestContextFactory())
+                .Build();
+
+            TinyIoCContainer.Current.Register<IAmACommandProcessor>(commandProcessor);
         }
 
         public void Execute<TMessage, THandler, TMapper>(BrokeredMessage msg)
@@ -29,8 +43,6 @@ namespace Brighter.AzureExtensions.Functions
                 new MessageBody(msg.GetBody<string>()));
 
             var container = TinyIoCContainer.Current;
-            container.Register(_log); // todo
-
             container.Register<TMapper>();
             container.Register<THandler>();
 
@@ -39,6 +51,23 @@ namespace Brighter.AzureExtensions.Functions
 
             var command = messageMapper.MapToRequest(message);
             handler.Handle(command);
+        }
+
+        private sealed class TinyIoCFactory : IAmAMessageMapperFactory, IAmAHandlerFactory
+        {
+            IAmAMessageMapper IAmAMessageMapperFactory.Create(Type messageMapperType)
+            {
+                return (IAmAMessageMapper)TinyIoCContainer.Current.Resolve(messageMapperType);
+            }
+            IHandleRequests IAmAHandlerFactory.Create(Type handlerType)
+            {
+                return (IHandleRequests)TinyIoCContainer.Current.Resolve(handlerType);
+            }
+
+            public void Release(IHandleRequests handler)
+            {
+                // nothing to do
+            }
         }
     }
 }

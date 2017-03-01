@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <TargetFrameworks>net46</TargetFrameworks>
+    <Authors>Daniel Stockhammer</Authors>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Paramore.Brighter.CommandProcessor" Version="6.1.8" />
+    <PackageReference Include="WindowsAzure.ServiceBus" Version="3.4.6" />
+  </ItemGroup>
+  <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
+    <DefineConstants>$(DefineConstants);RELEASE</DefineConstants>
+  </PropertyGroup>
+</Project>

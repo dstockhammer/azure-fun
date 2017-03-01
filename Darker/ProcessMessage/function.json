@@ -1,0 +1,14 @@
+﻿{
+  "disabled": false,
+  "bindings": [
+    {
+      "name": "msg",
+      "type": "serviceBusTrigger",
+      "direction": "in",
+      "topicName": "brighter-processmessage",
+      "subscriptionName": "mysubscription",
+      "connection": "Darker SB",
+      "accessRights": "Manage"
+    }
+  ]
+}

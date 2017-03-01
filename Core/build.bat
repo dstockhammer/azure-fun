@@ -1,0 +1,1 @@
+nuget.exe pack AzureFun.Core.csproj -outputdirectory ..\Darker\lib
