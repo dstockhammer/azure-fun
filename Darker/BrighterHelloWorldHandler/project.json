@@ -1,0 +1,9 @@
+﻿{
+  "frameworks": {
+    "net46":{
+      "dependencies": {
+        "Paramore.Brighter.CommandProcessor": "6.1.8"
+      }
+    }
+  }
+}
