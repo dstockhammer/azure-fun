@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Reflection;
 using Microsoft.ServiceBus.Messaging;
 using paramore.brighter.commandprocessor;
 using TinyIoC;
@@ -9,32 +10,44 @@ namespace Brighter.AzureExtensions.Functions
     {
         // todo proper logger adapter
         private readonly Action<string> _log;
+        private static HandlerConfig _handlerConfig;
+        private static CommandProcessor _commandProcessor;
+        private static readonly object _initialisationLock = new object();
 
-        public PipelineInvoker(Action<string> log)
+        public PipelineInvoker(Action<string> log, Assembly coreAssembly, IAmAMessageProducer producer = null)
         {
             _log = log;
             TinyIoCContainer.Current.Register(_log); // todo
+
+            if (_handlerConfig == null)
+            {
+                lock (_initialisationLock)
+                {
+                    if (_handlerConfig == null)
+                    {
+                        _handlerConfig = new HandlerConfig();
+                        _handlerConfig.RegisterDefaultHandlers();
+                        _handlerConfig.RegisterMappersFromAssembly(coreAssembly);
+                        _handlerConfig.RegisterSubscribersFromAssembly(coreAssembly);
+
+                        _commandProcessor = CommandProcessorBuilder.With()
+                            .Handlers(_handlerConfig.HandlerConfiguration)
+                            .DefaultPolicy()
+                            .TaskQueues(new MessagingConfiguration(new InMemoryMessageStore(), producer,
+                                _handlerConfig.MessageMapperRegistry))
+                            .RequestContextFactory(new InMemoryRequestContextFactory())
+                            .Build();
+
+                        TinyIoCContainer.Current.Register<IAmACommandProcessor>(_commandProcessor);
+                    }
+                }
+            }
         }
 
-        public PipelineInvoker(Action<string> log, MessagingConfiguration messagingConfiguration)
-            : this(log)
+        public void Execute<TRequest>(BrokeredMessage msg)
+            where TRequest : class, IRequest
         {
-            var commandProcessor = CommandProcessorBuilder.With()
-                .Handlers(new HandlerConfiguration(new SubscriberRegistry(), new TinyIoCFactory())) // todo: .NoHandlers()
-                .DefaultPolicy()
-                .TaskQueues(messagingConfiguration)
-                .RequestContextFactory(new InMemoryRequestContextFactory())
-                .Build();
-
-            TinyIoCContainer.Current.Register<IAmACommandProcessor>(commandProcessor);
-        }
-
-        public void Execute<TMessage, THandler, TMapper>(BrokeredMessage msg)
-            where TMessage : class, IRequest
-            where THandler : class, IHandleRequests<TMessage>
-            where TMapper : class, IAmAMessageMapper<TMessage>
-        {
-            _log($"Invoking Brighter pipeline for {typeof(TMessage).Name} {msg.MessageId}");
+            _log($"Invoking Brighter pipeline for {typeof(TRequest).Name} {msg.MessageId}");
 
             var messageId = Guid.Parse(msg.MessageId);
             var correlationId = Guid.Parse(msg.CorrelationId);
@@ -42,31 +55,31 @@ namespace Brighter.AzureExtensions.Functions
                 new MessageHeader(messageId, "topic todo", MessageType.MT_COMMAND, msg.EnqueuedTimeUtc, correlationId, null, msg.ContentType),
                 new MessageBody(msg.GetBody<string>()));
 
-            var container = TinyIoCContainer.Current;
-            container.Register<TMapper>();
-            container.Register<THandler>();
+            var messageMapper = _handlerConfig.MessageMapperRegistry.Get<TRequest>();
+            var request = messageMapper.MapToRequest(message);
 
-            var messageMapper = container.Resolve<TMapper>();
-            var handler = container.Resolve<THandler>();
-
-            var command = messageMapper.MapToRequest(message);
-            handler.Handle(command);
+            DispatchRequest(message.Header, request);
         }
 
-        private sealed class TinyIoCFactory : IAmAMessageMapperFactory, IAmAHandlerFactory
+        private static void DispatchRequest<TRequest>(MessageHeader messageHeader, TRequest request)
+            where TRequest : class, IRequest
         {
-            IAmAMessageMapper IAmAMessageMapperFactory.Create(Type messageMapperType)
-            {
-                return (IAmAMessageMapper)TinyIoCContainer.Current.Resolve(messageMapperType);
-            }
-            IHandleRequests IAmAHandlerFactory.Create(Type handlerType)
-            {
-                return (IHandleRequests)TinyIoCContainer.Current.Resolve(handlerType);
-            }
+            if (messageHeader.MessageType == MessageType.MT_COMMAND && request is IEvent)
+                throw new ConfigurationException($"Message {request.Id} mismatch. Message type is '{MessageType.MT_COMMAND}' yet mapper produced message of type IEvent");
 
-            public void Release(IHandleRequests handler)
+            if (messageHeader.MessageType == MessageType.MT_EVENT && request is ICommand)
+                throw new ConfigurationException($"Message {request.Id} mismatch. Message type is '{MessageType.MT_EVENT}' yet mapper produced message of type ICommand");
+
+            switch (messageHeader.MessageType)
             {
-                // nothing to do
+                case MessageType.MT_COMMAND:
+                    _commandProcessor.Send(request);
+                    break;
+                    
+                case MessageType.MT_DOCUMENT:
+                case MessageType.MT_EVENT:
+                    _commandProcessor.Publish(request);
+                    break;
             }
         }
     }
